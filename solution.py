@@ -6,10 +6,10 @@ import time
 from ultralytics import YOLO
 
 # Variable for controlling which level of the challenge to test -- set to 0 for pure keyboard control
-challengeLevel = 0
+challengeLevel = 2
 
 # Set to True if you want to run the simulation, False if you want to run on the real robot
-is_SIM = True
+is_SIM = False
 
 # Set to True if you want to run in debug mode with extra print statements, False otherwise
 Debug = False
@@ -23,6 +23,47 @@ camera = Camera(robot)
 imu = IMU(robot)
 logging = Logging(robot)
 lidar = Lidar(robot)
+
+def handle_stop_sign_and_apriltag(camera, control, robot,
+                                   stop_duration=2, cooldown_after_stop=30,
+                                   check_interval=5):
+    stop_detect = False
+    stop_cooldown = 0
+    frame_count = 0
+
+    print("stop sign + apriltag handler activated")
+
+    while rclpy.ok():
+        rclpy.spin_once(robot, timeout_sec=0.1)
+        time.sleep(0.1)
+        frame_count += 1
+
+        img = camera.rosImg_to_cv2()
+
+        if frame_count % check_interval == 0 and not stop_detect:
+            detected_stop, x1, y1, x2, y2 = camera.ML_predict_stop_sign(img)
+            apriltags = camera.estimate_apriltag_pose(img)
+
+            tag2_detected = any(tag[0] == 2 for tag in apriltags)
+            tag3_detected = any(tag[0] == 3 for tag in apriltags)
+
+            if detected_stop and (tag2_detected or tag3_detected):
+                print("stop sign detected")
+                for tag in apriltags:
+                    print("Detected tagID:", tag[0])
+                    break
+
+                control.set_cmd_vel(0.0, 0.0, stop_duration)
+                time.sleep(stop_duration)
+                stop_detect = True
+                stop_cooldown = cooldown_after_stop
+                print("please continue")
+
+        if stop_detect:
+            stop_cooldown -= 1
+            if stop_cooldown <= 0:
+                stop_detect = False
+
 
 if challengeLevel <= 2:
     control.start_keyboard_control()
@@ -45,10 +86,9 @@ try:
             # For example, create a function that will detect if the robot is too close to a wall
 
     if challengeLevel == 2:
-        while rclpy.ok():
-            rclpy.spin_once(robot, timeout_sec=0.1)
-            time.sleep(0.1)
-            # Write your solution here for challenge level 2
+        print("level 2 start!")
+        handle_stop_sign_and_apriltag(camera, control, robot)
+
             
     if challengeLevel == 3:
         while rclpy.ok():
