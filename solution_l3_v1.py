@@ -78,26 +78,77 @@ try:
             # Write your solution here for challenge level 2
             
     if challengeLevel == 3:
+        turning_right = False
+        waiting_for_right_wall = False
+        waiting_for_left_wall = False
+        use_left_wall = False  
+        
         while rclpy.ok():
             rclpy.spin_once(robot, timeout_sec=0.1)
             time.sleep(0.01)
             # Write your solution here for challenge level 3 (or 3.5)
-            stats = camera.estimate_apriltag_pose(camera.rosImg_to_cv2())
-            if len(stats) >= 1:
-                index = min(range(len(stats)), key=lambda i: stats[i][2])
-                bearing = stats[index][1]
-                print(1)
-                if abs(bearing) > 2:
-                    control.rotate(abs(bearing), 1 if bearing > 0 else -1)
+            print("start detections")
+            scan = lidar.checkScan()
+            print("0")
+            front_dist, _ = lidar.detect_obstacle_in_cone(scan, 0.25, 0, 5)
+            front_wall = front_dist != -1
+
+            front_far_dist, _ = lidar.detect_obstacle_in_cone(scan, 1.0, 0, 15)
+            front_clear_far = front_far_dist == -1
+
+            front_wide_dist, _ = lidar.detect_obstacle_in_cone(scan, 0.4, 0, 34)
+            front_clear_wide = front_wide_dist == -1
+
+            right_dist, _ = lidar.detect_obstacle_in_cone(scan, 0.6, 270, 5) 
+            right_clear = right_dist == -1
+            right_wall_found = not right_clear
+            print("start 1")
+            left_dist, _ = lidar.detect_obstacle_in_cone(scan, 0.6, 90, 5)
+            left_clear = left_dist == -1
+            left_wall_not_found = left_clear
+
+            print("2")
+            if(left_wall_not_found):
+                use_left_wall = True  
+
+            print("3")
+            if not left_clear and use_left_wall:
+                print("[✅] 左墙恢复，退出左墙转向模式")
+                use_left_wall = False
+            
+            print("start moving")
+            if turning_right:
+                if front_clear_far and front_clear_wide and not use_left_wall:
+                    print("[✅] 前方 1m + 宽区域都清空，停止右转，恢复前进")
+                    turning_right = False
+                    waiting_for_right_wall = True
+                    control.set_cmd_vel(0.0, 0.0, 0.2)
+                elif not left_clear:
+                    print("[✅] stop turning, start to move forward")
+                    turning_right= False
+                    control.set_cmd_vel(0.0, 0.0, 0.2)
                 else:
-                    control.move_forward()
-            elif len(stats) == 0:
-                print(0)
-                dist, _ = lidar.detect_obstacle_in_cone(lidar.checkScan(), 0.5, 0, 20)
-                if dist != -1:
-                    control.set_cmd_vel(0.0, -0.5, 1.3)
+                    print("[↪️] 正在右转...（前方仍有东西）")
+                    control.set_cmd_vel(0.0, -0.5, 0.2)
+            
+            elif waiting_for_right_wall and not use_left_wall:
+                if right_wall_found:
+                    print("[🧱] 右墙已恢复，重新进入贴墙模式")
+                    waiting_for_right_wall = False
+                    control.set_cmd_vel(0.2, 0.0, 0.2)
                 else:
-                    control.set_cmd_vel(1, 0, 1)
+                    print("[🔍] 等待右墙出现中...")
+                    control.set_cmd_vel(0.2, 0.0, 0.2)  # 先直走寻找右墙
+            else:
+                if front_wall:
+                    print("[⛔] 前方有墙，开始右转")
+                    turning_right = True
+                elif right_clear:
+                    print("[🚪] 右边无墙，开始右转")
+                    turning_right = True
+                else:
+                    print("[➡️] 正常贴墙前进")
+                    control.set_cmd_vel(0.2, 0.0, 0.2)
 
     if challengeLevel == 4:
         while rclpy.ok():
